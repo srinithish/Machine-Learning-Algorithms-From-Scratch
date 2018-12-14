@@ -13,28 +13,9 @@ import collections as col
 import math
 import tqdm
 import time 
+from sklearn.metrics import r2_score
+from sklearn.metrics import accuracy_score
 
-
-class networkNode():
-    
-    def __init__(self,inputVal = None):
-        self.inputVal = inputVal
-        self.outputVal = None
-        
-        pass
-    
-    def setInputVal(self, value):
-        self.inputVal = value
-        pass
-    
-    def getOutputVal(self,stepFuncName = 'sigmoid'):
-        if stepFuncName == 'sigmoid':
-            output = 1/(1+math.exp(-self.inputVal))
-            self.outputVal = output
-            return output
-
-
-    
 class networkLayer():
     ##dict of nodes
     
@@ -95,7 +76,7 @@ class networkLayer():
         
         if self._activationFunc == 'None':
             derivOutputs =  np.ones(len(self.inputs))
-            self.derivOutputs =derivOutputs 
+            self.derivOutputs = derivOutputs 
             return derivOutputs
             
         if self._activationFunc == 'sigmoid':
@@ -119,28 +100,23 @@ class networkLayer():
       
         
 class neuralNet():
-    def __init__(self,numLayers,NodesPerLayer,learningRate,epochs):
-        self._numLayers = numLayers ## including input and output
-        self._NodesPerLayer = NodesPerLayer ##As list in sequence of Nodes [14,5,3]
+    def __init__(self,numLayers,NodesPerLayer,
+                 ContOrCatTarget,learningRate= 0.05 ,epochs =30, verbose = True):
+        self._numLayers = numLayers ## not used yet
+        self._NodesPerLayer = NodesPerLayer ##As list in sequence of Nodes [14,5,3] except the inputlayer
         self._listOfLayers = None
         self._learningRate = learningRate
+        self._epochs =epochs
+        self._ContOrCatTarget = ContOrCatTarget #Cont or Cat
+        self.verbose = verbose
         pass
     
-    def getDataFromFile(self, filename): ##need to change for other data
     
-        DataDf = pd.read_csv(filename,header = None, sep = ' ' )
-        DataDf.columns = ['photo_id','correct_orientation'] + [i-2 for i  in DataDf.columns[2:].tolist()]
-    #        self.trainData = trainDataDf
-        XDataMatrix = np.array(DataDf.loc[:,~DataDf.columns.isin(['photo_id','correct_orientation'])])
-        YLabels = DataDf['correct_orientation']
-        XDataID = DataDf['photo_id']
-        return XDataMatrix,YLabels,XDataID
-    
-    
-    def train(XTrain):
+    def verbosePrint(self,*args):
+        if self.verbose:
+            print(*args) 
         
-        
-        pass
+
     
     def compileNetwork(self,XTrain):
         inputNumNodes = XTrain.shape[1]
@@ -156,7 +132,7 @@ class neuralNet():
         
     def forwardPass(self,oneExampleAsArray):
         inputNodes = oneExampleAsArray
-        
+        lastLayerPosition = len(self._listOfLayers)-1
         
         for layerPosition,layer in enumerate(self._listOfLayers):
             if layerPosition == 0 :
@@ -164,13 +140,26 @@ class neuralNet():
                 layer.setInputsToNodes(inputNodes)
                 output = layer.calcGetNodeOutputs('None')
                 weightTimesOutput = np.dot(output,layer.getWeights()) 
+             
+            
+                    
                 
-            else :
+            elif layerPosition < lastLayerPosition :
                 layer.setInputsToNodes(weightTimesOutput)
                 output = layer.calcGetNodeOutputs('sigmoid')
                 weightTimesOutput = np.dot(output,layer.getWeights())
                 
+            elif layerPosition == lastLayerPosition:
+                if self._ContOrCatTarget == 'Cont':
+                    layer.setInputsToNodes(weightTimesOutput)
+                    output = layer.calcGetNodeOutputs('None')
+                    weightTimesOutput = np.dot(output,layer.getWeights())
                 
+                elif self._ContOrCatTarget == 'Cat':
+                    layer.setInputsToNodes(weightTimesOutput)
+                    output = layer.calcGetNodeOutputs('sigmoid')
+                    weightTimesOutput = np.dot(output,layer.getWeights())
+                    
         #last layer neglect weightTimesOutput
         return output #final output
         
@@ -183,6 +172,8 @@ class neuralNet():
         for layerPosition,layer in enumerate(self._listOfLayers[::-1]):
             ##for the output layer
             if layerPosition == 0 :
+                ##change loss function here
+                
                 deltas = layer.getDerivatedOutputs()*\
                             (yTrain-layer.getCachedOutputs())
                 
@@ -191,6 +182,8 @@ class neuralNet():
             
             ##for other than output layer
             else:
+                
+                
                 deltas = layer.getDerivatedOutputs()*\
                          np.dot(layer.getWeights(),deltas)
                 
@@ -201,32 +194,98 @@ class neuralNet():
         
     def updateWeights(self):
         
+        ##updates weights to the respective layers
         for currentLayer,nextLayer in zip(self._listOfLayers,self._listOfLayers[1:]):
             
             currentWeights = currentLayer.getWeights()
-            
+           
             DeltaMatrix = np.tile(nextLayer.getDeltas(),(currentWeights.shape[0],1)) ##repeat delata so that matrix is formed
-            outputTimesDeltaMat = currentLayer.getCachedOutputs()[:,np.newaxis]*DeltaMatrix
+            ##alpha* ouput@i * delta @ nextlayer j
+            outputTimesDeltaMat = self._learningRate*currentLayer.getCachedOutputs()[:,np.newaxis]*DeltaMatrix
             newWeights = currentWeights+outputTimesDeltaMat                
             currentLayer.setWeights(newWeights)
             
             
     
+    def train(self,XTrain,YTrain):
+        self.compileNetwork(XTrain) ##forms layers
         
         
+        for epoch in range(self._epochs):
+            
+            
+            for trainExampleX,trainExampleY in zip(XTrain,YTrain):
+                self.forwardPass(trainExampleX) ##sets inputs
+                self.backpropogate(trainExampleY) ##back propogates errors calculates deltas
+                self.updateWeights() ##updates wieghts in place
+        
+            self.verbosePrint("Epoch :" , epoch, "Accuracy :",self.getAccuracy(XTrain,YTrain))
         
         pass
     
+    def predict(self,XTest):
+        
+        predictions = [self.forwardPass(testExamp)[0] for testExamp in XTest ]
+        return np.array(predictions)
     
-XTrian = np.array([[1,2,3],[2,3,4]])
-yTrain = np.array([1,2,3])
-myNet = neuralNet(1,[3,3],0.05,10)
-myNet.compileNetwork(XTrian) 
-    
-myNet.forwardPass(XTrian[0,:])        
-myNet.backpropogate(yTrain)
-myNet.updateWeights()
-myNet._listOfLayers[1].getWeights()
+    def getAccuracy(self,X,y):
+        predictions = self.predict(X)
+        
+        if self._ContOrCatTarget == 'Cont':
+            return r2_score(y,predictions)
+        
+        if self._ContOrCatTarget == 'Cat':
+            finalPredictions = (predictions>=0.5).astype(int)
+            return accuracy_score(y,finalPredictions)
+        pass
         
         
+        
+  
+if __name__ == '__main__':
+    
+    from sklearn.datasets import load_boston
+    from sklearn.model_selection import train_test_split
+    from sklearn import preprocessing
+    from sklearn.metrics import r2_score
+    
+    ##cont
+    boston = load_boston()
+    
+    XTrian = boston['data']
+    yTrain = boston['target']
+    
+    #cat
+    from sklearn.datasets import load_breast_cancer
+    breastCancer = load_breast_cancer()
+    XTrian = breastCancer['data']
+    yTrain = breastCancer['target']
+    
+    
+    XTrian = preprocessing.StandardScaler().fit_transform(XTrian)
+#    numLayers,NodesPerLayer,
+#                 ContOrCatTarget,learningRate= 0.05 ,epochs =30
+    
+    
+    X_train, X_test, y_train, y_test = train_test_split(XTrian, yTrain, test_size=0.5, random_state=42)
+    myNet = neuralNet(3,[10,5,1],'Cont',0.01,300)
+    
+    myNet.train(X_train,y_train)    
+    Predictions = myNet.predict(X_test)
+    
+    ## for cat
+    finalPredictions = (Predictions>=0.5).astype(int)
+
+    
+    print("Accuracy is: " ,sum(finalPredictions==y_test)/len(y_test))
+    
+    ##for cont
+    
+    
+    
+#    print("accuracy is ",r2_score(y_test,Predictions))
+    
+    
+
+            
         
