@@ -26,3 +26,14 @@ Created on Fri Dec 14 14:20:20 2018
 #    myNet._listOfLayers[1].getDeltas()
 #    myNet.updateWeights()
 #    myNet._listOfLayers[1].getWeights()
+        
+a = np.array([[0, 1],
+    [2, 3],
+[4, 5],
+[6, 7],
+    [9, 8]])
+
+
+row_maxes = a.max(axis=1).reshape(-1, 1)
+np.where(a == row_maxes, 1, 0)
+np.where(a == row_maxes).astype(int)

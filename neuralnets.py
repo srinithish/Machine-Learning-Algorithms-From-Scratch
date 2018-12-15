@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # -*- coding: utf-8 -*-
 """
 Created on Wed Dec 12 15:01:18 2018
@@ -27,6 +29,7 @@ class networkLayer():
         self.WeightsAtNodes = np.random.rand(currentNumNodes,nextNumNodes)
         self._activationFunc = None
         self.deltas = None
+        
         pass
     
     def addNode(self,position, networkNode):
@@ -101,13 +104,16 @@ class networkLayer():
         
 class neuralNet():
     def __init__(self,numLayers,NodesPerLayer,
-                 ContOrCatTarget,learningRate= 0.05 ,epochs =30, verbose = True):
+                 ContOrCatTarget,multiclass = False ,learningRate= 0.05 ,
+                 epochs =30,earlyStoppingEpochs = 10, verbose = True):
         self._numLayers = numLayers ## not used yet
         self._NodesPerLayer = NodesPerLayer ##As list in sequence of Nodes [14,5,3] except the inputlayer
         self._listOfLayers = None
         self._learningRate = learningRate
         self._epochs =epochs
         self._ContOrCatTarget = ContOrCatTarget #Cont or Cat
+        self._multiclass = multiclass
+        self.earlyStoppingEpochs = earlyStoppingEpochs
         self.verbose = verbose
         pass
     
@@ -218,14 +224,25 @@ class neuralNet():
                 self.forwardPass(trainExampleX) ##sets inputs
                 self.backpropogate(trainExampleY) ##back propogates errors calculates deltas
                 self.updateWeights() ##updates wieghts in place
-        
-            self.verbosePrint("Epoch :" , epoch, "Accuracy :",self.getAccuracy(XTrain,YTrain))
-        
+            
+            
+            currentAccuracy = self.getAccuracy(XTrain,YTrain)
+            self.verbosePrint("Epoch :" , epoch, "Accuracy :",currentAccuracy)
+            
+            
+                
+                
         pass
     
     def predict(self,XTest):
+        if not self._multiclass:
+            
+            predictions = [self.forwardPass(testExamp)[0] for testExamp in XTest ]
         
-        predictions = [self.forwardPass(testExamp)[0] for testExamp in XTest ]
+        elif self._multiclass:
+            
+            predictions = [self.forwardPass(testExamp) for testExamp in XTest ]
+        
         return np.array(predictions)
     
     def getAccuracy(self,X,y):
@@ -235,10 +252,24 @@ class neuralNet():
             return r2_score(y,predictions)
         
         if self._ContOrCatTarget == 'Cat':
-            finalPredictions = (predictions>=0.5).astype(int)
+            if not self._multiclass:
+                finalPredictions = (predictions>=0.5).astype(int)
+            elif self._multiclass:
+                row_maxes = predictions.max(axis=1).reshape(-1, 1)
+                finalPredictions = np.where(predictions == row_maxes, 1, 0)
+                
             return accuracy_score(y,finalPredictions)
-        pass
         
+    
+    def getDataFromFile(self, filename):
+    
+        DataDf = pd.read_csv(filename,header = None, sep = ' ' )
+        DataDf.columns = ['photo_id','correct_orientation'] + [i-2 for i  in DataDf.columns[2:].tolist()]
+    #        self.trainData = trainDataDf
+        XDataMatrix = np.array(DataDf.loc[:,~DataDf.columns.isin(['photo_id','correct_orientation'])])
+        YLabels = DataDf['correct_orientation']
+        XDataID = DataDf['photo_id']
+        return XDataMatrix,YLabels,XDataID
         
         
   
@@ -247,14 +278,14 @@ if __name__ == '__main__':
     from sklearn.datasets import load_boston
     from sklearn.model_selection import train_test_split
     from sklearn import preprocessing
-    from sklearn.metrics import r2_score
+
     
-    ##cont
-    boston = load_boston()
-    
-    XTrian = boston['data']
-    yTrain = boston['target']
-    
+#    ##cont
+#    boston = load_boston()
+#    
+#    XTrian = boston['data']
+#    yTrain = boston['target']
+#    
     #cat
     from sklearn.datasets import load_breast_cancer
     breastCancer = load_breast_cancer()
@@ -262,22 +293,50 @@ if __name__ == '__main__':
     yTrain = breastCancer['target']
     
     
+    ##common
     XTrian = preprocessing.StandardScaler().fit_transform(XTrian)
 #    numLayers,NodesPerLayer,
 #                 ContOrCatTarget,learningRate= 0.05 ,epochs =30
     
     
-    X_train, X_test, y_train, y_test = train_test_split(XTrian, yTrain, test_size=0.5, random_state=42)
-    myNet = neuralNet(3,[10,5,1],'Cont',0.01,300)
     
-    myNet.train(X_train,y_train)    
-    Predictions = myNet.predict(X_test)
+    ##photo orientation
     
-    ## for cat
-    finalPredictions = (Predictions>=0.5).astype(int)
 
     
-    print("Accuracy is: " ,sum(finalPredictions==y_test)/len(y_test))
+    X_train, X_test, y_train, y_test = train_test_split(XTrian, yTrain, test_size=0.1, random_state=42)
+    
+    
+    myNet = neuralNet(3,[10,5,4],'Cat',True,0.02,50)
+   
+    
+    
+        ##photo orientation
+    X_train,y_train,XDataID = myNet.getDataFromFile('train-data.txt')
+    X_train = preprocessing.StandardScaler().fit_transform(X_train)
+#    
+    y_train = pd.get_dummies(y_train)
+    y_train = np.array(y_train)
+    
+    myNet.train(X_train,y_train)    
+    
+    X_test,y_test,XDataID = myNet.getDataFromFile('test-data.txt')
+    X_test = preprocessing.StandardScaler().fit_transform(X_test)
+    
+    y_test = pd.get_dummies(y_test)
+    y_test = np.array(y_test)
+    
+    
+    Predictions = myNet.predict(X_test)
+    
+    print("test accu",myNet.getAccuracy(X_test,y_test))
+    
+    
+    ## for cat
+#    finalPredictions = (Predictions>=0.5).astype(int)
+
+    
+#    print("Accuracy is: " ,sum(finalPredictions==y_test)/len(y_test))
     
     ##for cont
     
